@@ -6,4 +6,12 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dbt-mcp>=1.4.0",
+    "duckdb>=1.1.0",
+    "sentence-transformers>=3.0.0",
+    "torch>=2.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.8",
 ]
