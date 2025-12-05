@@ -1,6 +1,6 @@
 """
 V1 - Export GQL result from Discovery API
-Currently, this is specific to get_all_models , but would like to 
+Currently, this is specific to get_all_models , but would like to
 generalize to more tool calls
 """
 
@@ -15,6 +15,9 @@ from dbt_mcp.discovery.tools import DiscoveryToolContext
 from dbt_mcp.config.config_providers import DiscoveryConfig, ConfigProvider
 from dbt_mcp.config.headers import DiscoveryHeadersProvider
 from dbt_mcp.oauth.token_provider import StaticTokenProvider
+
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -46,21 +49,15 @@ async def get_all_models(context: DiscoveryToolContext) -> list[dict]:
     return await context.models_fetcher.fetch_models()
 
 
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger(__name__)
-
-
 async def main():
     token_provider = StaticTokenProvider(token=DBT_TOKEN)
     headers_provider = DiscoveryHeadersProvider(token_provider=token_provider)
 
     # Discovery API GraphQL endpoint URL
-    url = f'https://metadata.{DBT_HOST}/graphql'
+    url = f"https://metadata.{DBT_HOST}/graphql"
 
     config = DiscoveryConfig(
-        url=url,
-        headers_provider=headers_provider,
-        environment_id=DBT_PROD_ENV_ID
+        url=url, headers_provider=headers_provider, environment_id=DBT_PROD_ENV_ID
     )
 
     config_provider = StaticConfigProvider(config)
