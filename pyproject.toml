@@ -7,7 +7,11 @@ requires-python = ">=3.13"
 dependencies = [
     "dbt-mcp>=1.4.0",
     "duckdb>=1.1.0",
+    "lancedb>=0.25.3",
+    "pyarrow-stubs>=20.0.0.20251107",
+    "pylance>=0.18.0",
     "sentence-transformers>=3.0.0",
+    "tantivy>=0.25.1",
     "torch>=2.0.0",
 ]
 
