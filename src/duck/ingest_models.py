@@ -171,6 +171,7 @@ class ModelDataIngestor:
         logger.info("Data inserted successfully")
 
         logger.info("Creating FTS index for hybrid search")
+        # Only index name and description (matching LanceDB configuration)
         self.conn.execute("""
             PRAGMA create_fts_index(
                 'models',
