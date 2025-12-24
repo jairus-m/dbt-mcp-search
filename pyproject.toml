@@ -19,3 +19,10 @@ dependencies = [
 dev = [
     "ruff>=0.14.8",
 ]
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/"]

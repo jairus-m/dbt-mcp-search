@@ -2,3 +2,4 @@
 *.json
 *.duckdb
 *.lance/
+*.pyc
