@@ -5,13 +5,13 @@ import json
 from sentence_transformers import SentenceTransformer
 import duckdb
 
+from src.query import QUERY
+
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 con = duckdb.connect("data/duck_db/dbt_models.duckdb")
 
-query = "user_accounts_to_salesforce_accounts__bridge"
-
-emb = model.encode(query).tolist()  # MUST BE a Python list of floats
+emb = model.encode(QUERY).tolist()  # MUST BE a Python list of floats
 
 sql = """
 WITH
@@ -105,8 +105,8 @@ LIMIT 10;
 """
 
 # Make it pretty
-# Parameters: emb, query (FTS WHERE), query (FTS SELECT), query (exact match), query (LIKE match)
-res = con.execute(sql, [emb, query, query, query, query])
+# Parameters: emb, QUERY (FTS WHERE), QUERY (FTS SELECT), QUERY (exact match), QUERY (LIKE match)
+res = con.execute(sql, [emb, QUERY, QUERY, QUERY, QUERY])
 cols = [c[0] for c in res.description]
 rows = [dict(zip(cols, row)) for row in res.fetchall()]
 

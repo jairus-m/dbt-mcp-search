@@ -8,14 +8,15 @@ from sentence_transformers import SentenceTransformer
 import lancedb
 import pyarrow as pa
 import pyarrow.compute as pc
+
+from src.query import QUERY
+
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 db = lancedb.connect("data/lance_db")
 table = db.open_table("models")
 
-query = "user_accounts_to_salesforce_accounts__bridge"
-
-query_vector = model.encode(query).tolist()
+query_vector = model.encode(QUERY).tolist()
 
 # 1. Perform vector search
 vector_results = (
@@ -26,7 +27,7 @@ vector_results = (
 
 # 2. Perform FTS search
 fts_results = (
-    table.search(query, query_type="fts")
+    table.search(QUERY, query_type="fts")
     .limit(100)
     .to_arrow()
 )

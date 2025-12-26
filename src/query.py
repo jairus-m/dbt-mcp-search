@@ -1,0 +1,1 @@
+QUERY : str = "Give me the bridge table that maps user accounts to salesforce accounts."
