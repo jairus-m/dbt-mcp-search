@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import lancedb
-import pyarrow as pa
 from sentence_transformers import SentenceTransformer
 
 logging.basicConfig(
@@ -134,6 +133,9 @@ class ModelDataIngestor:
 
     def print_statistics(self):
         """Print statistics about the ingested data."""
+        if self.db is None:
+            raise RuntimeError("Database connection not established")
+
         table = self.db.open_table("models")
         count = table.count_rows()
         logger.info(f"Total models: {count}")
