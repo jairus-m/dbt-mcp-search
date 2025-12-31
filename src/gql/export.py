@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -16,10 +17,17 @@ from dbt_mcp.config.config_providers import DiscoveryConfig, ConfigProvider
 from dbt_mcp.config.headers import DiscoveryHeadersProvider
 from dbt_mcp.oauth.token_provider import StaticTokenProvider
 
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+# Validate required env vars
+required_vars = ["DBT_HOST", "DBT_TOKEN", "DBT_PROD_ENV_ID"]
+missing = [v for v in required_vars if not os.environ.get(v)]
+if missing:
+    logger.error(f"Missing required environment variables: {', '.join(missing)}")
+    sys.exit(1)
 
 DBT_HOST = os.environ["DBT_HOST"]
 DBT_TOKEN = os.environ["DBT_TOKEN"]
@@ -50,12 +58,11 @@ async def get_all_models(context: DiscoveryToolContext) -> list[dict]:
 
 
 async def main():
+    """Main function to export dbt models from Discovery API to JSON."""
     token_provider = StaticTokenProvider(token=DBT_TOKEN)
     headers_provider = DiscoveryHeadersProvider(token_provider=token_provider)
 
-    # Discovery API GraphQL endpoint URL
     url = f"https://metadata.{DBT_HOST}/graphql"
-
     config = DiscoveryConfig(
         url=url, headers_provider=headers_provider, environment_id=DBT_PROD_ENV_ID
     )
@@ -64,17 +71,17 @@ async def main():
     context = DiscoveryToolContext(config_provider)
 
     models = await get_all_models(context)
-
-    print(f"Fetched {len(models)} models")
+    logger.info(f"Fetched {len(models)} models")
 
     output_dir = "data/gql_output"
-    os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "all_models.json")
+
+    os.makedirs(output_dir, exist_ok=True)
 
     with open(output_file, "w") as f:
         json.dump(models, f, indent=2)
 
-    print(f"Saved models to {output_file}")
+    logger.info(f"Saved models to {output_file}")
 
 
 if __name__ == "__main__":

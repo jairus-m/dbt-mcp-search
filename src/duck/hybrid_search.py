@@ -2,15 +2,26 @@
 Example of hybrid search with DuckDB as a single paramerized query.
 """
 import json
+import logging
+import sys
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
 import duckdb
 
 from src.query import QUERY
 
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+DB_PATH = "data/duck_db/dbt_models.duckdb"
+
+# Check database exists
+if not Path(DB_PATH).exists():
+    logger.error(f"Database not found: {DB_PATH}. Run ingestion script first.")
+    sys.exit(1)
+
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-
-con = duckdb.connect("data/duck_db/dbt_models.duckdb")
-
+con = duckdb.connect(DB_PATH)
 emb = model.encode(QUERY).tolist()  # MUST BE a Python list of floats
 
 sql = """
@@ -104,7 +115,6 @@ ORDER BY hybrid_score DESC
 LIMIT 10;
 """
 
-# Make it pretty
 # Parameters: emb, QUERY (FTS WHERE), QUERY (FTS SELECT), QUERY (exact match), QUERY (LIKE match)
 res = con.execute(sql, [emb, QUERY, QUERY, QUERY, QUERY])
 cols = [c[0] for c in res.description]

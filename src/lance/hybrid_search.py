@@ -4,6 +4,9 @@ Generated w/ Claude (pointed at DuckDB implementation but plan on using this
 as a learning script and deepen my personal understanding)
 """
 import json
+import logging
+import sys
+from pathlib import Path
 from sentence_transformers import SentenceTransformer
 import lancedb
 import pyarrow as pa
@@ -11,9 +14,18 @@ import pyarrow.compute as pc
 
 from src.query import QUERY
 
-model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
 
-db = lancedb.connect("data/lance_db")
+DB_PATH = "data/lance_db"
+
+# Check database exists
+if not Path(DB_PATH).exists():
+    logger.error(f"Database not found: {DB_PATH}. Run ingestion script first.")
+    sys.exit(1)
+
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+db = lancedb.connect(DB_PATH)
 table = db.open_table("models")
 
 query_vector = model.encode(QUERY).tolist()
@@ -31,12 +43,6 @@ fts_results = (
     .limit(100)
     .to_arrow()
 )
-
-# Debug: Print columns to see what's available
-print("FTS Results columns:", fts_results.column_names)
-if fts_results.num_rows > 0:
-    first_row = {name: fts_results[name][0].as_py() for name in fts_results.column_names}
-    print("First FTS result:", first_row)
 
 # 3. Combine results with hybrid scoring
 # Normalize vector scores (distance to similarity: smaller distance = higher similarity)
@@ -81,7 +87,7 @@ if fts_results.num_rows > 0:
         else:
             fts_scores = pa.array([1.0] * fts_results.num_rows)
     else:
-        print(f"Warning: No score column found in FTS results. Available columns: {fts_results.column_names}")
+        logger.warning(f"No score column found. Available: {fts_results.column_names}")
         fts_scores = pa.array([1.0] * fts_results.num_rows)
 
     # Add fts_score column

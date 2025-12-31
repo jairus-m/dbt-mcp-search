@@ -49,18 +49,14 @@ class ModelDataIngestor:
         logger.info("Embedding model loaded successfully")
 
     def load_json_data(self, json_path: str) -> List[Dict[str, Any]]:
-        """
-        Load dbt models data from JSON file.
+        """Load dbt models data from JSON file."""
+        if not Path(json_path).exists():
+            raise FileNotFoundError(f"JSON file not found: {json_path}")
 
-        Args:
-            json_path: Path to the JSON file
-
-        Returns:
-            List of model dictionaries
-        """
         logger.info(f"Loading data from {json_path}")
         with open(json_path, "r") as f:
             data = json.load(f)
+
         logger.info(f"Loaded {len(data)} models")
         return data
 
@@ -85,24 +81,14 @@ class ModelDataIngestor:
     def generate_embeddings(
         self, texts: List[str], batch_size: int = 32
     ) -> List[List[float]]:
-        """
-        Generate embeddings for a list of texts.
+        """Generate embeddings for a list of texts."""
+        if self.model is None:
+            raise RuntimeError("Embedding model not loaded")
 
-        Args:
-            texts: List of text strings
-            batch_size: Batch size for encoding
-
-        Returns:
-            List of embedding vectors
-        """
-        assert self.model is not None, (
-            "Model must be loaded before generating embeddings"
-        )
         logger.info(f"Generating embeddings for {len(texts)} texts")
         embeddings = self.model.encode(
             texts, batch_size=batch_size, show_progress_bar=True, convert_to_numpy=True
         )
-        logger.info("Embeddings generated successfully")
         return embeddings.tolist()
 
     def setup_database(self):
@@ -135,14 +121,10 @@ class ModelDataIngestor:
         logger.info("Database tables created successfully")
 
     def insert_data(self, models: List[Dict[str, Any]], embeddings: List[List[float]]):
-        """
-        Insert models data and embeddings into DuckDB.
+        """Insert models data and embeddings into DuckDB."""
+        if self.conn is None:
+            raise RuntimeError("Database connection not established")
 
-        Args:
-            models: List of model dictionaries
-            embeddings: List of embedding vectors
-        """
-        assert self.conn is not None, "Database connection must be established"
         logger.info(f"Inserting {len(models)} models into database")
 
         data_to_insert = []
@@ -185,7 +167,6 @@ class ModelDataIngestor:
 
     def create_indexes(self):
         """Create additional indexes for performance."""
-        assert self.conn is not None, "Database connection must be established"
         logger.info("Creating additional indexes")
 
         # Index on name for faster lookups
@@ -198,38 +179,13 @@ class ModelDataIngestor:
 
     def print_statistics(self):
         """Print statistics about the ingested data."""
-        assert self.conn is not None, "Database connection must be established"
-        logger.info("=" * 60)
-        logger.info("DATABASE STATISTICS")
-        logger.info("=" * 60)
-
         result = self.conn.execute("SELECT COUNT(*) FROM models").fetchone()
-        assert result is not None
         logger.info(f"Total models: {result[0]}")
 
         result = self.conn.execute(
             "SELECT array_length(embedding) FROM models LIMIT 1"
         ).fetchone()
-        assert result is not None
         logger.info(f"Embedding dimension: {result[0]}")
-
-        result = self.conn.execute(
-            "SELECT AVG(LENGTH(description)) FROM models"
-        ).fetchone()
-        assert result is not None
-        logger.info(f"Average description length: {result[0]:.2f} characters")
-
-        logger.info("\nSample records:")
-        results = self.conn.execute("""
-            SELECT name, LEFT(description, 100) as desc_preview
-            FROM models
-            LIMIT 3
-        """).fetchall()
-
-        for name, desc in results:
-            logger.info(f"  - {name}: {desc}...")
-
-        logger.info("=" * 60)
 
     def close(self):
         """Close the database connection."""

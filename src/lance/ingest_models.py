@@ -50,18 +50,14 @@ class ModelDataIngestor:
         logger.info("Embedding model loaded successfully")
 
     def load_json_data(self, json_path: str) -> List[Dict[str, Any]]:
-        """
-        Load dbt models data from JSON file.
+        """Load dbt models data from JSON file."""
+        if not Path(json_path).exists():
+            raise FileNotFoundError(f"JSON file not found: {json_path}")
 
-        Args:
-            json_path: Path to the JSON file
-
-        Returns:
-            List of model dictionaries
-        """
         logger.info(f"Loading data from {json_path}")
         with open(json_path, "r") as f:
             data = json.load(f)
+
         logger.info(f"Loaded {len(data)} models")
         return data
 
@@ -84,24 +80,14 @@ class ModelDataIngestor:
     def generate_embeddings(
         self, texts: List[str], batch_size: int = 32
     ) -> List[List[float]]:
-        """
-        Generate embeddings for a list of texts.
+        """Generate embeddings for a list of texts."""
+        if self.model is None:
+            raise RuntimeError("Embedding model not loaded")
 
-        Args:
-            texts: List of text strings
-            batch_size: Batch size for encoding
-
-        Returns:
-            List of embedding vectors
-        """
-        assert self.model is not None, (
-            "Model must be loaded before generating embeddings"
-        )
         logger.info(f"Generating embeddings for {len(texts)} texts")
         embeddings = self.model.encode(
             texts, batch_size=batch_size, show_progress_bar=True, convert_to_numpy=True
         )
-        logger.info("Embeddings generated successfully")
         return embeddings.tolist()
 
     def setup_database(self):
@@ -115,14 +101,10 @@ class ModelDataIngestor:
         logger.info("Database connection established")
 
     def insert_data(self, models: List[Dict[str, Any]], embeddings: List[List[float]]):
-        """
-        Insert models data and embeddings into LanceDB.
+        """Insert models data and embeddings into LanceDB."""
+        if self.db is None:
+            raise RuntimeError("Database connection not established")
 
-        Args:
-            models: List of model dictionaries
-            embeddings: List of embedding vectors
-        """
-        assert self.db is not None, "Database connection must be established"
         logger.info(f"Inserting {len(models)} models into database")
 
         # Prepare data for LanceDB
@@ -152,39 +134,16 @@ class ModelDataIngestor:
 
     def print_statistics(self):
         """Print statistics about the ingested data."""
-        assert self.db is not None, "Database connection must be established"
-        logger.info("=" * 60)
-        logger.info("DATABASE STATISTICS")
-        logger.info("=" * 60)
-
         table = self.db.open_table("models")
-
         count = table.count_rows()
         logger.info(f"Total models: {count}")
 
         arrow_table = table.to_arrow()
-
         if arrow_table.num_rows > 0:
-            # 1st row embedding dim
             vector_col = arrow_table["vector"]
             first_vector = vector_col[0].as_py()
             embedding_dim = len(first_vector)
             logger.info(f"Embedding dimension: {embedding_dim}")
-
-            desc_col = arrow_table["description"]
-            desc_lengths = [len(desc.as_py()) if desc.as_py() else 0 for desc in desc_col]
-            avg_desc_len = sum(desc_lengths) / len(desc_lengths)
-            logger.info(f"Average description length: {avg_desc_len:.2f} characters")
-
-        logger.info("\nSample records:")
-        sample_size = min(3, arrow_table.num_rows)
-        for i in range(sample_size):
-            name = arrow_table["name"][i].as_py()
-            description = arrow_table["description"][i].as_py()
-            desc_preview = description[:100] if description else ""
-            logger.info(f"  - {name}: {desc_preview}...")
-
-        logger.info("=" * 60)
 
     def run(self, json_path: str):
         """
