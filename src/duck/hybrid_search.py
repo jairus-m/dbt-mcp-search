@@ -8,7 +8,7 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 import duckdb
 
-from src.query import QUERY
+from dagster_search.constants import QUERY
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
