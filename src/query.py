@@ -1,1 +1,5 @@
-QUERY : str = "Give me the bridge table that maps user accounts to salesforce accounts."
+QUERY: str = "Give me the bridge table that maps user accounts to salesforce accounts."
+RUN_RESULTS_QUERY: str = "Which models failed in the last run?"
+SOURCES_QUERY: str = "Which sources are stale?"
+MANIFEST_QUERY: str = "Find the model that joins orders and customers."
+CATALOG_QUERY: str = "Which table has customer email columns?"
