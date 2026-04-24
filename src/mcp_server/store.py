@@ -1,7 +1,7 @@
 """In-memory DuckDB artifact store.
 
-Provides a generic loader driven by ArtifactConfig definitions, plus
-read-only SQL query and full-text search capabilities.
+Provides a multi-table loader driven by extraction pipelines (one artifact
+file can produce many tables), plus read-only SQL query and full-text search.
 """
 
 import json
@@ -11,7 +11,7 @@ from typing import Any
 
 import duckdb
 
-from src.mcp_server.artifacts import ALL_ARTIFACTS, ArtifactConfig
+from src.mcp_server.artifacts import ARTIFACT_PIPELINE, TABLES, TableConfig
 
 logger = logging.getLogger(__name__)
 
@@ -39,59 +39,130 @@ class ArtifactStore:
 
     def load_all(self) -> dict[str, int]:
         """Load all available artifact files. Returns {table_name: row_count}."""
+        # Create all tables up front
+        for config in TABLES.values():
+            self.conn.execute(f"DROP TABLE IF EXISTS {config.table_name};")
+            self.conn.execute(config.table_ddl)
+
         counts: dict[str, int] = {}
-        for config in ALL_ARTIFACTS:
-            path = self.data_dir / config.filename
-            if path.exists():
-                try:
-                    count = self._load_artifact(config, path)
-                    counts[config.table_name] = count
-                except Exception:
-                    logger.exception(f"Failed to load {config.filename}")
-            else:
-                logger.warning(
-                    f"Skipping {config.filename}: not found at {path}"
-                )
+
+        for filename, extractor in ARTIFACT_PIPELINE:
+            path = self.data_dir / filename
+            if not path.exists():
+                logger.warning(f"Skipping {filename}: not found at {path}")
+                continue
+
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+
+                tables_data = extractor(data)
+
+                for table_name, rows in tables_data.items():
+                    if not rows:
+                        continue
+
+                    # Special: catalog column merge into node_columns
+                    if table_name == "_node_columns_update":
+                        self._merge_node_columns(rows)
+                        continue
+
+                    config = TABLES[table_name]
+                    self._insert_rows(config, rows)
+                    counts[table_name] = counts.get(table_name, 0) + len(rows)
+                    self._loaded_tables.add(table_name)
+                    logger.info(f"Loaded {len(rows)} rows into {table_name}")
+
+            except Exception:
+                logger.exception(f"Failed to load {filename}")
+
+        # Build indexes after all data is loaded
+        for table_name in self._loaded_tables:
+            self._build_indexes(TABLES[table_name])
+
         return counts
 
-    def _load_artifact(self, config: ArtifactConfig, path: Path) -> int:
-        """Generic loader: parse JSON, create table, insert rows, build indexes."""
-        with open(path) as f:
-            data = json.load(f)
-
-        entries = config.extract_entries(data)
-        if not entries:
-            logger.warning(f"No entries found in {config.filename}")
-            return 0
-
-        # Create table
-        self.conn.execute(f"DROP TABLE IF EXISTS {config.table_name};")
-        self.conn.execute(config.table_ddl)
-
-        # Insert rows
-        rows = [config.map_row(idx, entry) for idx, entry in enumerate(entries)]
+    def _insert_rows(self, config: TableConfig, rows: list[tuple]) -> None:
+        """Bulk insert rows into a table."""
+        if not rows:
+            return
         placeholders = ", ".join(["?"] * len(rows[0]))
         self.conn.executemany(
             f"INSERT INTO {config.table_name} VALUES ({placeholders})", rows
         )
 
-        # FTS index
-        fts_cols = ", ".join(f"'{c}'" for c in config.fts_columns)
-        self.conn.execute(
-            f"PRAGMA create_fts_index('{config.table_name}', 'id', "
-            f"{fts_cols}, overwrite=1);"
+    def _merge_node_columns(self, rows: list[tuple]) -> None:
+        """Merge catalog column data into node_columns via batch update.
+
+        Each row is (unique_id, column_name, column_index, catalog_type, catalog_comment).
+        Uses a temp table + batch UPDATE/INSERT for performance.
+        """
+        if not rows:
+            return
+
+        self.conn.execute("""
+            CREATE TEMP TABLE _catalog_cols (
+                unique_id VARCHAR, column_name VARCHAR,
+                column_index INTEGER, catalog_type VARCHAR,
+                catalog_comment TEXT
+            )
+        """)
+        placeholders = ", ".join(["?"] * 5)
+        self.conn.executemany(
+            f"INSERT INTO _catalog_cols VALUES ({placeholders})", rows
         )
 
-        # B-tree indexes
-        for col in config.index_columns:
-            idx_name = f"idx_{config.table_name[:2]}_{col}"
+        # Update existing node_columns with catalog data
+        self.conn.execute("""
+            UPDATE node_columns SET
+                column_index = COALESCE(cc.column_index, node_columns.column_index),
+                catalog_type = COALESCE(cc.catalog_type, node_columns.catalog_type),
+                data_type = COALESCE(cc.catalog_type, node_columns.data_type),
+                catalog_comment = COALESCE(cc.catalog_comment, node_columns.catalog_comment)
+            FROM _catalog_cols cc
+            WHERE node_columns.unique_id = cc.unique_id
+              AND node_columns.column_name = cc.column_name
+        """)
+
+        # Insert catalog-only columns not already in node_columns
+        row = self.conn.execute(
+            "SELECT COALESCE(MAX(id), -1) + 1 FROM node_columns"
+        ).fetchone()
+        assert row is not None
+        next_id = row[0]
+        self.conn.execute(f"""
+            INSERT INTO node_columns (id, unique_id, column_name, column_index,
+                catalog_type, data_type, catalog_comment)
+            SELECT {next_id} + row_number() OVER () - 1,
+                   cc.unique_id, cc.column_name, cc.column_index,
+                   cc.catalog_type, cc.catalog_type, cc.catalog_comment
+            FROM _catalog_cols cc
+            WHERE NOT EXISTS (
+                SELECT 1 FROM node_columns nc
+                WHERE nc.unique_id = cc.unique_id
+                  AND nc.column_name = cc.column_name
+            )
+        """)
+
+        self.conn.execute("DROP TABLE _catalog_cols")
+        self._loaded_tables.add("node_columns")
+        logger.info(f"Merged {len(rows)} catalog columns into node_columns")
+
+    def _build_indexes(self, config: TableConfig) -> None:
+        """Build FTS and B-tree indexes for a table."""
+        if config.fts_columns:
+            fts_cols = ", ".join(f"'{c}'" for c in config.fts_columns)
             self.conn.execute(
-                f'CREATE INDEX {idx_name} ON {config.table_name}("{col}");'
+                f"PRAGMA create_fts_index('{config.table_name}', 'id', "
+                f"{fts_cols}, overwrite=1);"
             )
 
-        self._loaded_tables.add(config.table_name)
-        logger.info(f"Loaded {len(rows)} rows into {config.table_name}")
-        return len(rows)
+        for col in config.index_columns:
+            idx_name = f"idx_{config.table_name[:4]}_{col}"
+            self.conn.execute(
+                f'CREATE INDEX IF NOT EXISTS {idx_name} '
+                f'ON {config.table_name}("{col}");'
+            )
 
     # ── Query methods ────────────────────────────────────────────────
 
@@ -106,9 +177,11 @@ class ArtifactStore:
         for (table_name,) in result:
             if table_name.startswith("fts_"):
                 continue
-            count = self.conn.execute(
+            count_row = self.conn.execute(
                 f'SELECT COUNT(*) FROM "{table_name}"'
-            ).fetchone()[0]
+            ).fetchone()
+            assert count_row is not None
+            count = count_row[0]
             tables.append({"table_name": table_name, "row_count": count})
         return tables
 
@@ -142,6 +215,9 @@ class ArtifactStore:
     ) -> list[dict[str, Any]]:
         """Full-text BM25 search on a loaded table."""
         self._validate_table_name(table_name)
+        config = TABLES.get(table_name)
+        if not config or not config.fts_columns:
+            raise ValueError(f"Table '{table_name}' does not support full-text search")
         limit = min(limit, MAX_RESULT_ROWS)
 
         fts_table = f"fts_main_{table_name}"
