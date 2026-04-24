@@ -5,6 +5,7 @@ Or via MCP:  mcp dev src/mcp_server/server.py
 """
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -17,13 +18,26 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
-    """Load artifacts into in-memory DuckDB on startup."""
+    """Start the server immediately, load artifacts in a background thread."""
     store = ArtifactStore()
-    counts = store.load_all()
-    logger.info(f"Artifacts loaded: {counts}")
+    ready = threading.Event()
+
+    def _load():
+        try:
+            counts = store.load_all()
+            logger.info(f"Artifacts loaded: {counts}")
+        except Exception:
+            logger.exception("Failed to load artifacts")
+        finally:
+            ready.set()
+
+    loader = threading.Thread(target=_load, daemon=True)
+    loader.start()
+
     try:
-        yield store
+        yield {"store": store, "ready": ready}
     finally:
+        loader.join(timeout=5)
         store.close()
 
 
@@ -31,18 +45,33 @@ mcp = FastMCP(
     name="dbt-artifacts",
     instructions=(
         "Query dbt Cloud job run artifacts loaded in an in-memory DuckDB. "
-        "Tables: manifest_nodes (project nodes with SQL code and columns), "
-        "catalog_nodes (table/column metadata), run_results (execution status), "
-        "source_freshness (source staleness). "
+        "Tables: nodes (models/tests/seeds/snapshots/sources with rich config), "
+        "node_columns (column definitions with catalog types), "
+        "edges (dependency graph: parent→child), "
+        "test_metadata (test configs and attached nodes), "
+        "exposures (BI dashboards/notebooks), metrics (metric definitions), "
+        "groups (access groups), macros (macro SQL and metadata), "
+        "catalog_tables (warehouse table metadata), "
+        "catalog_stats (table statistics like row counts), "
+        "invocations (dbt run metadata), run_results (per-node execution status), "
+        "source_freshness (source staleness with criteria). "
         "Use list_tables first, then describe_table to understand schemas, "
-        "then query or search to find what you need."
+        "then query or search to find what you need. "
+        "Use edges to trace dependencies (e.g. impact analysis). "
+        "Join nodes with node_columns on unique_id for full column info."
     ),
     lifespan=lifespan,
 )
 
 
 def _get_store(ctx: Context) -> ArtifactStore:
-    return ctx.request_context.lifespan_context
+    lc = ctx.request_context.lifespan_context
+    ready: threading.Event = lc["ready"]
+    if not ready.is_set():
+        ready.wait(timeout=120)
+        if not ready.is_set():
+            raise RuntimeError("Artifact loading timed out")
+    return lc["store"]
 
 
 @mcp.tool(
