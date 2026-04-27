@@ -3,3 +3,5 @@
 *.duckdb
 *.lance/
 *.pyc
+scripts/
+test-scenarios/
