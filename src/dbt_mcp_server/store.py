@@ -95,6 +95,10 @@ class ArtifactStore:
             if table_name == "_node_columns_update":
                 self._merge_node_columns(rows, run_id)
                 affected_tables.add("node_columns")
+                row = self.conn.execute(
+                    "SELECT COUNT(*) FROM node_columns WHERE run_id = ?", [run_id]
+                ).fetchone()
+                counts["node_columns"] = row[0] if row else 0
                 continue
 
             config = TABLES[table_name]
@@ -206,7 +210,7 @@ class ArtifactStore:
         )
 
         # Update existing node_columns rows for this run with catalog data
-        self.conn.execute(f"""
+        self.conn.execute("""
             UPDATE node_columns SET
                 column_index = COALESCE(cc.column_index, node_columns.column_index),
                 catalog_type = COALESCE(cc.catalog_type, node_columns.catalog_type),
@@ -215,8 +219,8 @@ class ArtifactStore:
             FROM _catalog_cols cc
             WHERE node_columns.unique_id = cc.unique_id
               AND node_columns.column_name = cc.column_name
-              AND node_columns.run_id = {run_id}
-        """)
+              AND node_columns.run_id = ?
+        """, [run_id])
 
         # Insert catalog-only columns not already in node_columns for this run
         row = self.conn.execute(
@@ -224,11 +228,11 @@ class ArtifactStore:
         ).fetchone()
         assert row is not None
         next_id = row[0]
-        self.conn.execute(f"""
+        self.conn.execute("""
             INSERT INTO node_columns (id, run_id, unique_id, column_name, column_index,
                 catalog_type, data_type, catalog_comment)
-            SELECT {next_id} + row_number() OVER () - 1,
-                   {run_id},
+            SELECT ? + row_number() OVER () - 1,
+                   ?,
                    cc.unique_id, cc.column_name, cc.column_index,
                    cc.catalog_type, cc.catalog_type, cc.catalog_comment
             FROM _catalog_cols cc
@@ -236,9 +240,9 @@ class ArtifactStore:
                 SELECT 1 FROM node_columns nc
                 WHERE nc.unique_id = cc.unique_id
                   AND nc.column_name = cc.column_name
-                  AND nc.run_id = {run_id}
+                  AND nc.run_id = ?
             )
-        """)
+        """, [next_id, run_id, run_id])
 
         self.conn.execute("DROP TABLE _catalog_cols")
         self._loaded_tables.add("node_columns")
@@ -285,7 +289,11 @@ class ArtifactStore:
                 f'SELECT COUNT(*) FROM "{table_name}"'
             ).fetchone()
             assert count_row is not None
-            tables.append({"table_name": table_name, "row_count": count_row[0]})
+            tables.append({
+                "table_name": table_name,
+                "row_count": count_row[0],
+                "status": "loaded" if table_name in self._loaded_tables else "not_loaded",
+            })
         return tables
 
     def describe_table(self, table_name: str) -> list[dict[str, str]]:
