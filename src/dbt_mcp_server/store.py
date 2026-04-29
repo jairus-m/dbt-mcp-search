@@ -240,9 +240,9 @@ class ArtifactStore:
                 SELECT 1 FROM node_columns nc
                 WHERE nc.unique_id = cc.unique_id
                   AND nc.column_name = cc.column_name
-                  AND nc.run_id = {run_id}
+                  AND nc.run_id = ?
             )
-        """)
+        """, [next_id, run_id, run_id])
 
         self.conn.execute("DROP TABLE _catalog_cols")
         self._loaded_tables.add("node_columns")
@@ -289,7 +289,11 @@ class ArtifactStore:
                 f'SELECT COUNT(*) FROM "{table_name}"'
             ).fetchone()
             assert count_row is not None
-            tables.append({"table_name": table_name, "row_count": count_row[0]})
+            tables.append({
+                "table_name": table_name,
+                "row_count": count_row[0],
+                "status": "loaded" if table_name in self._loaded_tables else "not_loaded",
+            })
         return tables
 
     def describe_table(self, table_name: str) -> list[dict[str, str]]:
