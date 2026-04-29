@@ -82,8 +82,10 @@ Join nodes with node_columns on unique_id for full column info.
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
-    """Server lifespan: create store and config, register tools."""
+    """Server lifespan: build config, create store, register tools."""
+    config_provider = _build_config_provider()
     store = ArtifactStore()
+    register_artifact_search_tools(server, config_provider, store=store)
     try:
         yield {"store": store}
     finally:
@@ -95,10 +97,6 @@ mcp = FastMCP(
     instructions=INSTRUCTIONS,
     lifespan=lifespan,
 )
-
-# Register tools at module level (FastMCP pattern)
-_config_provider = _build_config_provider()
-register_artifact_search_tools(mcp, _config_provider)
 
 
 def main() -> None:
