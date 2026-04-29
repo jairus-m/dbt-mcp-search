@@ -6,6 +6,7 @@ and a register function.
 """
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -116,7 +117,9 @@ async def load_artifacts(
             errors[artifact_str] = str(e)
 
     # Build all indexes once
+    t_index = time.perf_counter()
     indexed = context.store.build_all_indexes()
+    index_build_ms = round((time.perf_counter() - t_index) * 1000)
 
     return {
         "status": "loaded",
@@ -124,6 +127,7 @@ async def load_artifacts(
         "tables_loaded": all_tables,
         "indexes_built": indexed,
         "timing_ms": all_timing,
+        "index_build_ms": index_build_ms,
         "errors": errors,
     }
 
