@@ -210,7 +210,7 @@ class ArtifactStore:
         )
 
         # Update existing node_columns rows for this run with catalog data
-        self.conn.execute(f"""
+        self.conn.execute("""
             UPDATE node_columns SET
                 column_index = COALESCE(cc.column_index, node_columns.column_index),
                 catalog_type = COALESCE(cc.catalog_type, node_columns.catalog_type),
@@ -219,8 +219,8 @@ class ArtifactStore:
             FROM _catalog_cols cc
             WHERE node_columns.unique_id = cc.unique_id
               AND node_columns.column_name = cc.column_name
-              AND node_columns.run_id = {run_id}
-        """)
+              AND node_columns.run_id = ?
+        """, [run_id])
 
         # Insert catalog-only columns not already in node_columns for this run
         row = self.conn.execute(
@@ -228,11 +228,11 @@ class ArtifactStore:
         ).fetchone()
         assert row is not None
         next_id = row[0]
-        self.conn.execute(f"""
+        self.conn.execute("""
             INSERT INTO node_columns (id, run_id, unique_id, column_name, column_index,
                 catalog_type, data_type, catalog_comment)
-            SELECT {next_id} + row_number() OVER () - 1,
-                   {run_id},
+            SELECT ? + row_number() OVER () - 1,
+                   ?,
                    cc.unique_id, cc.column_name, cc.column_index,
                    cc.catalog_type, cc.catalog_type, cc.catalog_comment
             FROM _catalog_cols cc
