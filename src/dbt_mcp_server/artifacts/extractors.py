@@ -322,7 +322,7 @@ def extract_from_manifest(
             exp.depends_on if isinstance(exp.depends_on, DependsOnSchema)
             else DependsOnSchema()
         )
-        for parent_id in depends_on.nodes:
+        for parent_id in dict.fromkeys(depends_on.nodes):
             edge_rows.append((parent_id, exp.unique_id, "exposure_ref"))
 
     # Metric → model edges
@@ -331,7 +331,7 @@ def extract_from_manifest(
             metric.depends_on if isinstance(metric.depends_on, DependsOnSchema)
             else DependsOnSchema()
         )
-        for parent_id in depends_on.nodes:
+        for parent_id in dict.fromkeys(depends_on.nodes):
             edge_rows.append((parent_id, metric.unique_id, "metric_ref"))
 
     # Add sequential ids to tables that extracted without them
