@@ -95,6 +95,10 @@ class ArtifactStore:
             if table_name == "_node_columns_update":
                 self._merge_node_columns(rows, run_id)
                 affected_tables.add("node_columns")
+                row = self.conn.execute(
+                    "SELECT COUNT(*) FROM node_columns WHERE run_id = ?", [run_id]
+                ).fetchone()
+                counts["node_columns"] = row[0] if row else 0
                 continue
 
             config = TABLES[table_name]
